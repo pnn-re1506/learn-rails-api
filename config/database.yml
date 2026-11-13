@@ -1,0 +1,51 @@
+# Each module has its own database:
+#   system   -> MySQL       (engines/system)
+#   analysis -> PostgreSQL  (engines/analysis)
+#   report   -> PostgreSQL  (engines/report)
+# `migrations_paths` decides which migrations run on which database.
+
+mysql: &mysql
+  adapter: mysql2
+  encoding: utf8mb4
+  host: <%= ENV.fetch("MYSQL_HOST", "localhost") %>
+  port: <%= ENV.fetch("MYSQL_PORT", 3306) %>
+  username: <%= ENV.fetch("MYSQL_USER", "root") %>
+  password: <%= ENV.fetch("MYSQL_PASSWORD", "password") %>
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+
+postgres: &postgres
+  adapter: postgresql
+  encoding: unicode
+  host: <%= ENV.fetch("PG_HOST", "localhost") %>
+  port: <%= ENV.fetch("PG_PORT", 5432) %>
+  username: <%= ENV.fetch("PG_USER", "postgres") %>
+  password: <%= ENV.fetch("PG_PASSWORD", "password") %>
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+
+development:
+  system:
+    <<: *mysql
+    database: system_dev
+    migrations_paths: engines/system/db/migrate
+  analysis:
+    <<: *postgres
+    database: analysis_dev
+    migrations_paths: engines/analysis/db/migrate
+  report:
+    <<: *postgres
+    database: report_dev
+    migrations_paths: engines/report/db/migrate
+
+test:
+  system:
+    <<: *mysql
+    database: system_test
+    migrations_paths: engines/system/db/migrate
+  analysis:
+    <<: *postgres
+    database: analysis_test
+    migrations_paths: engines/analysis/db/migrate
+  report:
+    <<: *postgres
+    database: report_test
+    migrations_paths: engines/report/db/migrate

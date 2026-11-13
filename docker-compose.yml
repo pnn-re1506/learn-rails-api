@@ -1,0 +1,51 @@
+services:
+  # Database of the System module
+  mysql:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "3307:3306"            # Connect from your machine (DBeaver...) at localhost:3307
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ppassword"]
+      interval: 5s
+      retries: 20
+
+  # One PostgreSQL server holding 2 databases: analysis_* and report_*
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5433:5432"            # Connect from your machine at localhost:5433
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 20
+
+  # The Rails app (all modules)
+  app:
+    build: .
+    environment:
+      RAILS_ENV: development
+      MYSQL_HOST: mysql          # service name = hostname inside the Docker network
+      MYSQL_PASSWORD: password
+      PG_HOST: postgres
+      PG_PASSWORD: password
+    ports:
+      - "3000:3000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+volumes:
+  mysqldata:
+  pgdata:

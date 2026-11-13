@@ -1,0 +1,23 @@
+# One image for the whole app: System + Analysis + Report run in the same Rails process.
+FROM ruby:3.4-slim
+
+# OS libraries: compilers for native gems + client libraries for MySQL (mysql2) and PostgreSQL (pg)
+RUN apt-get update -qq && \
+    apt-get install -y --no-install-recommends \
+      build-essential pkg-config git libyaml-dev \
+      default-libmysqlclient-dev libpq-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# The Gemfile points to engines/*/xxx.gemspec, so the engines must be copied BEFORE bundle install
+COPY Gemfile Gemfile.lock* ./
+COPY engines ./engines
+RUN bundle install
+
+COPY . .
+
+EXPOSE 3000
+
+# db:prepare creates + migrates all 3 databases (system, analysis, report) if needed
+CMD ["bash", "-c", "rm -f tmp/pids/server.pid && ruby bin/rails db:prepare && ruby bin/rails server -b 0.0.0.0 -p 3000"]
