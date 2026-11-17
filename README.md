@@ -4,16 +4,19 @@ API Rails demo **Modular Monolith**: 1 app Rails, chia thành 3 module (Rails En
 
 | Module | Thư mục | Database | Chức năng |
 |---|---|---|---|
-| System | `engines/system` | MySQL 8 (`system_*`) | Đăng ký, đăng nhập, JWT |
-| Analysis | `engines/analysis` | PostgreSQL 16 (`analysis_*`) | Ghi event, thống kê |
-| Report | `engines/report` | PostgreSQL 16 (`report_*`) | Lưu snapshot báo cáo từ số liệu Analysis |
+| System | `engines/system` | MySQL `system_*` | Đăng ký, đăng nhập, JWT |
+| Website | `engines/website` | MySQL `website_*` | Thông tin website: `domain`, `name` |
+| Report | `engines/report` | MySQL `report_*` | Số liệu chi tiết theo website và tháng, ghép với Website thành report cuối |
 
 ```
-Report ──> Analysis ──> System      (phụ thuộc một chiều)
+Report ──> Website ──> System      (phụ thuộc một chiều)
 ```
 
-- Analysis và Report dùng `System::Authentication` để bắt buộc đăng nhập.
-- Report lấy số liệu qua `Analysis::SummaryService`, không JOIN sang DB của Analysis.
+- Cả 3 database nằm trên **cùng một MySQL server** (3 schema khác nhau).
+- Website và Report dùng `System::Authentication` để bắt buộc đăng nhập.
+- Report ghép dữ liệu Website theo **hai cách** để so sánh (cùng kết quả JSON):
+  - `via_join`: 1 câu SQL `LEFT JOIN` xuyên database (`Website::ReportJoin` giữ tên DB/bảng).
+  - `via_service`: gọi `Website::SiteService` rồi ghép bằng Ruby.
 - Mỗi `ApplicationRecord` của module có `connects_to` trỏ tới DB riêng, khai báo trong `config/database.yml`.
 
 ## Chạy bằng Docker
@@ -21,7 +24,7 @@ Report ──> Analysis ──> System      (phụ thuộc một chiều)
 Cần [Docker Desktop](https://www.docker.com/products/docker-desktop/). Không cần cài Ruby.
 
 ```powershell
-docker compose up --build -d     # build image + chạy mysql, postgres, app
+docker compose up --build -d     # build image + chạy mysql, app
 docker compose ps                # xem trạng thái
 docker compose logs -f app       # xem log (Ctrl+C để thoát)
 ```
@@ -32,7 +35,6 @@ Khi khởi động, app tự chạy `db:prepare`: tạo DB nếu chưa có và m
 |---|---|---|
 | API | http://localhost:3000 | |
 | MySQL | localhost:3307 | root / password |
-| PostgreSQL | localhost:5433 | postgres / password |
 
 Lệnh hay dùng:
 
@@ -41,7 +43,7 @@ docker compose exec app ruby bin/rails routes                            # xem t
 docker compose exec app ruby bin/rails console                           # Rails console
 docker compose exec -e RAILS_ENV=test app ruby bin/rails test            # chạy test
 docker compose exec mysql mysql -uroot -ppassword -e "SHOW DATABASES"    # xem DB MySQL
-docker compose exec postgres psql -U postgres -c "\l"                    # xem DB Postgres
+docker compose exec app ruby bin/rails db:seed                          # nạp dữ liệu mẫu (login demo@example.com / secret123)
 docker compose up --build -d                                             # sau khi sửa code
 docker compose down                                                      # tắt (giữ dữ liệu)
 docker compose down -v                                                   # tắt và xóa dữ liệu
@@ -54,13 +56,15 @@ docker compose down -v                                                   # tắt
 | POST | `/system/signup` | Không | Đăng ký, trả token |
 | POST | `/system/login` | Không | Đăng nhập, trả token |
 | GET | `/system/me` | Có | Thông tin user hiện tại |
-| GET | `/analysis/events` | Có | Danh sách event (lọc: `?name=sale`) |
-| POST | `/analysis/events` | Có | Tạo event `{ "event": { "name", "value" } }` |
-| GET | `/analysis/summary` | Có | Thống kê theo `name`: count, total, average |
-| GET | `/report/snapshots` | Có | Danh sách snapshot |
-| POST | `/report/snapshots` | Có | Tạo snapshot `{ "snapshot": { "title" } }` từ summary hiện tại |
-| GET | `/report/snapshots/:id` | Có | Xem một snapshot |
-| DELETE | `/report/snapshots/:id` | Có | Xóa snapshot |
+| GET | `/website/sites` | Có | Danh sách website |
+| GET | `/website/sites/:id` | Có | Xem một website |
+| POST | `/website/sites` | Có | Tạo website `{ "site": { "domain", "name" } }` |
+| GET | `/report/details` | Có | Số liệu thô của Report (chưa có domain/name) |
+| POST | `/report/details` | Có | Tạo `{ "detail": { "site_id", "period": "2026-10", "visits", "page_views", "bounce_rate" } }` |
+| GET | `/report/reports/via_join` | Có | Report cuối, ghép bằng SQL JOIN xuyên DB |
+| GET | `/report/reports/via_service` | Có | Report cuối, ghép bằng `Website::SiteService` |
+
+Hai endpoint report nhận cùng tham số: `?domain=blog` (lọc theo domain), `?sort=domain` (mặc định sắp theo visits giảm dần).
 
 Mã lỗi: `400` thiếu tham số, `401` chưa đăng nhập hoặc token sai, `404` không tìm thấy (kể cả dữ liệu của người khác), `422` dữ liệu không hợp lệ.
 
@@ -68,39 +72,41 @@ Mã lỗi: `400` thiếu tham số, `401` chưa đăng nhập hoặc token sai, 
 
 ```powershell
 $base = "http://localhost:3000"
+docker compose exec app ruby bin/rails db:seed      # dữ liệu mẫu, chạy 1 lần
 
-# 1. System: đăng ký, lấy token
-$r = Invoke-RestMethod -Method Post "$base/system/signup" -ContentType application/json `
-  -Body '{"user":{"email":"bob@example.com","password":"secret123"}}'
+# 1. Đăng nhập user mẫu, lấy token
+$r = Invoke-RestMethod -Method Post "$base/system/login" -ContentType application/json `
+  -Body '{"user":{"email":"demo@example.com","password":"secret123"}}'
 $h = @{ Authorization = "Bearer $($r.token)" }
-Invoke-RestMethod "$base/system/me" -Headers $h
 
-# 2. Analysis: ghi vài event rồi xem thống kê   (dữ liệu nằm ở PostgreSQL analysis_dev)
-Invoke-RestMethod -Method Post "$base/analysis/events" -Headers $h -ContentType application/json -Body '{"event":{"name":"sale","value":100}}'
-Invoke-RestMethod -Method Post "$base/analysis/events" -Headers $h -ContentType application/json -Body '{"event":{"name":"sale","value":300}}'
-Invoke-RestMethod "$base/analysis/summary" -Headers $h | ConvertTo-Json
+# 2. Website (DB website_dev) và số liệu thô của Report (DB report_dev)
+Invoke-RestMethod "$base/website/sites" -Headers $h | ConvertTo-Json
+Invoke-RestMethod "$base/report/details" -Headers $h | ConvertTo-Json
 
-# 3. Report: chụp snapshot từ summary   (dữ liệu nằm ở PostgreSQL report_dev)
-$s = Invoke-RestMethod -Method Post "$base/report/snapshots" -Headers $h -ContentType application/json `
-  -Body '{"snapshot":{"title":"November report"}}'
-$s | ConvertTo-Json -Depth 5
-Invoke-RestMethod "$base/report/snapshots" -Headers $h | ConvertTo-Json -Depth 5
-Invoke-RestMethod -Method Delete "$base/report/snapshots/$($s.id)" -Headers $h
+# 3. Report cuối: cùng kết quả, hai cách ghép
+Invoke-RestMethod "$base/report/reports/via_join"    -Headers $h | ConvertTo-Json -Depth 6
+Invoke-RestMethod "$base/report/reports/via_service" -Headers $h | ConvertTo-Json -Depth 6
+Invoke-RestMethod "$base/report/reports/via_join?domain=blog&sort=domain" -Headers $h | ConvertTo-Json -Depth 6
 
 # 4. Không gửi token -> 401
-Invoke-RestMethod "$base/report/snapshots"
+Invoke-RestMethod "$base/report/reports/via_join"
 ```
 
 Bằng Postman: gọi `POST /system/signup` hoặc `/system/login`, copy `token`, rồi ở các request khác vào tab **Authorization**, chọn **Bearer Token** và dán token vào.
 
 ## Xem dữ liệu bằng DBeaver (hoặc tool tương tự)
 
-- MySQL: host `localhost`, port `3307`, user `root`, password `password`, database `system_dev`, bảng `system_users`.
-- PostgreSQL: host `localhost`, port `5433`, user `postgres`, password `password`. Database `analysis_dev` có bảng `analysis_events`, database `report_dev` có bảng `report_snapshots`.
+MySQL: host `localhost`, port `3307`, user `root`, password `password`. Ba database: `system_dev` (`system_users`), `website_dev` (`website_sites`), `report_dev` (`report_details`). Thử join tay:
+
+```sql
+SELECT d.period, d.visits, s.domain, s.name
+FROM report_dev.report_details d
+LEFT JOIN website_dev.website_sites s ON s.id = d.site_id;
+```
 
 ## Thêm một module mới (ví dụ `billing`)
 
-1. Tạo `engines/billing/` theo khuôn của `engines/analysis` (gemspec, `lib/billing/engine.rb` với `isolate_namespace Billing`, models, controllers, `config/routes.rb`, `db/migrate`).
+1. Tạo `engines/billing/` theo khuôn của `engines/website` (gemspec, `lib/billing/engine.rb` với `isolate_namespace Billing`, models, controllers, `config/routes.rb`, `db/migrate`).
 2. Trong `Billing::ApplicationRecord`, thêm `connects_to database: { writing: :billing, reading: :billing }`.
 3. Thêm `billing:` vào `config/database.yml` (cả `development` và `test`), kèm `migrations_paths: engines/billing/db/migrate`.
 4. Thêm `gem "billing", path: "engines/billing"` vào `Gemfile`, và `mount Billing::Engine => "/billing"` vào `config/routes.rb`.

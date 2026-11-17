@@ -1,8 +1,16 @@
 require "test_helper"
 
-# Tests the whole flow like a real client: signup -> login -> Analysis -> Report.
-# Each request may touch a different database: System (MySQL), Analysis and Report (PostgreSQL).
+# Tests the whole flow like a real client: signup -> login -> Website -> Report.
+# Each request may touch a different database: System, Website and Report (3 databases, one MySQL server).
 class ApiFlowTest < ActionDispatch::IntegrationTest
+  # The JOIN endpoint reads a Website table through Report's connection. With transactional tests each
+  # connection keeps its writes uncommitted, so that join would not see the sites the test just created.
+  # So these tests really commit, and we empty the tables ourselves.
+  self.use_transactional_tests = false
+
+  setup    { clean_tables }
+  teardown { clean_tables }
+
   # --- System ---
 
   test "signup returns a token that works on /me" do
@@ -36,7 +44,7 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
   end
 
   test "protected endpoints of every module reject missing or invalid token" do
-    %w[/analysis/events /analysis/summary /report/snapshots].each do |path|
+    %w[/website/sites /report/details /report/reports/via_join /report/reports/via_service].each do |path|
       get path
       assert_response :unauthorized, "#{path} without token"
 
@@ -45,98 +53,124 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     end
   end
 
-  # --- Analysis ---
+  # --- Website ---
 
-  test "create events and get the summary" do
+  test "create and list sites" do
     headers = auth(signup("bob@example.com"))
 
-    create_event(headers, "sale", 100)
-    create_event(headers, "sale", 300)
-    create_event(headers, "page_view", 1)
+    shop = create_site(headers, "Shop.Example.com ", "Example Shop")
+    assert_equal "shop.example.com", shop["domain"]   # normalized
+    create_site(headers, "blog.example.com", "Example Blog")
 
-    get "/analysis/events", params: { name: "sale" }, headers: headers
+    get "/website/sites", headers: headers
     assert_response :ok
-    assert_equal [ 300, 100 ], response.parsed_body.map { |e| e["value"] }
+    assert_equal %w[blog.example.com shop.example.com], response.parsed_body.map { |s| s["domain"] }
 
-    get "/analysis/summary", headers: headers
-    assert_response :ok
-    assert_equal [
-      { "name" => "page_view", "count" => 1, "total" => 1, "average" => 1.0 },
-      { "name" => "sale", "count" => 2, "total" => 400, "average" => 200.0 }
-    ], response.parsed_body
+    get "/website/sites/#{shop['id']}", headers: headers
+    assert_equal "Example Shop", response.parsed_body["name"]
   end
 
-  test "create event with invalid data returns validation errors" do
+  test "site validation: required fields and unique domain" do
     headers = auth(signup("bob@example.com"))
+    create_site(headers, "shop.example.com", "Shop")
 
-    post "/analysis/events", params: { event: { name: "", value: "abc" } }, headers: headers, as: :json
+    post "/website/sites", params: { site: { domain: "shop.example.com", name: "Again" } }, headers: headers, as: :json
+    assert_response :unprocessable_content
+    assert response.parsed_body["errors"]["domain"].present?
 
+    post "/website/sites", params: { site: { domain: "", name: "" } }, headers: headers, as: :json
     assert_response :unprocessable_content
     assert response.parsed_body["errors"]["name"].present?
-    assert response.parsed_body["errors"]["value"].present?
   end
 
-  test "a user only sees their own events in the summary" do
-    alice = auth(signup("alice@example.com"))
-    bob   = auth(signup("bob@example.com"))
-    create_event(alice, "sale", 999)
+  # --- Report: raw rows ---
 
-    get "/analysis/summary", headers: bob
-
-    assert_empty response.parsed_body
-  end
-
-  # --- Report (reads Analysis through Analysis::SummaryService) ---
-
-  test "snapshot stores a copy of the analysis summary" do
+  test "create a report row; the site must exist and the period must be valid" do
     headers = auth(signup("bob@example.com"))
-    create_event(headers, "sale", 250)
+    site = create_site(headers, "shop.example.com", "Shop")
 
-    post "/report/snapshots", params: { snapshot: { title: "November" } }, headers: headers, as: :json
-    assert_response :created
-    id = response.parsed_body["id"]
-    assert_equal [ { "name" => "sale", "count" => 1, "total" => 250, "average" => 250.0 } ],
-                 response.parsed_body["data"]
+    create_detail(headers, site["id"], "2026-10", 100)
 
-    # A new event does not change the old snapshot
-    create_event(headers, "sale", 50)
-    get "/report/snapshots/#{id}", headers: headers
-    assert_equal 250, response.parsed_body["data"].first["total"]
+    get "/report/details", headers: headers
+    assert_equal [ "2026-10" ], response.parsed_body.map { |d| d["period"] }
 
-    get "/report/snapshots", headers: headers
-    assert_equal [ id ], response.parsed_body.map { |s| s["id"] }
-
-    delete "/report/snapshots/#{id}", headers: headers
-    assert_response :no_content
-
-    get "/report/snapshots/#{id}", headers: headers
-    assert_response :not_found
-  end
-
-  test "create snapshot without title returns validation errors" do
-    headers = auth(signup("bob@example.com"))
-
-    post "/report/snapshots", params: { snapshot: { title: "" } }, headers: headers, as: :json
-
+    post "/report/details", params: { detail: { site_id: 999_999, period: "2026-10", visits: 1 } }, headers: headers, as: :json
     assert_response :unprocessable_content
-    assert response.parsed_body["errors"]["title"].present?
+    assert response.parsed_body["errors"]["site_id"].present?
+
+    post "/report/details", params: { detail: { site_id: site["id"], period: "October", visits: 1 } }, headers: headers, as: :json
+    assert_response :unprocessable_content
+    assert response.parsed_body["errors"]["period"].present?
   end
 
-  test "a user cannot access another user's snapshot" do
+  # --- Report: the final report, merged in two ways, must give the same answer ---
+
+  test "final report via JOIN and via service return the same rows" do
+    headers = auth(signup("bob@example.com"))
+    shop = create_site(headers, "shop.example.com", "Example Shop")
+    blog = create_site(headers, "blog.example.com", "Example Blog")
+    create_detail(headers, shop["id"], "2026-10", 300, 900)
+    create_detail(headers, blog["id"], "2026-10", 100, 150)
+
+    [ "via_join", "via_service" ].each do |way|
+      get "/report/reports/#{way}", headers: headers
+      assert_response :ok
+      report = response.parsed_body
+      assert_equal way.delete_prefix("via_"), report["via"]
+      assert_equal 2, report["count"]
+      assert_equal 400, report["total_visits"]
+      assert_equal 1050, report["total_page_views"]
+      assert_equal [ "shop.example.com", "blog.example.com" ], report["rows"].map { |r| r.dig("site", "domain") }  # visits desc
+      assert_equal "Example Shop", report["rows"].first.dig("site", "name")
+    end
+  end
+
+  test "both ways support the same domain filter and sort" do
+    headers = auth(signup("bob@example.com"))
+    shop = create_site(headers, "shop.example.com", "Shop")
+    blog = create_site(headers, "blog.example.com", "Blog")
+    create_detail(headers, shop["id"], "2026-10", 300)
+    create_detail(headers, blog["id"], "2026-10", 100)
+
+    [ "via_join", "via_service" ].each do |way|
+      get "/report/reports/#{way}", params: { domain: "blog" }, headers: headers
+      assert_equal [ "blog.example.com" ], response.parsed_body["rows"].map { |r| r.dig("site", "domain") }, way
+
+      get "/report/reports/#{way}", params: { sort: "domain" }, headers: headers
+      assert_equal %w[blog.example.com shop.example.com], response.parsed_body["rows"].map { |r| r.dig("site", "domain") }, way
+    end
+  end
+
+  test "a row whose site was deleted still appears, with site null, in both ways" do
+    headers = auth(signup("bob@example.com"))
+    site = create_site(headers, "shop.example.com", "Shop")
+    create_detail(headers, site["id"], "2026-10", 300)
+    Website::Site.find(site["id"]).destroy!   # nothing stops this: no foreign key across databases
+
+    [ "via_join", "via_service" ].each do |way|
+      get "/report/reports/#{way}", headers: headers
+      assert_equal 1, response.parsed_body["count"], way
+      assert_nil response.parsed_body["rows"].first["site"], way
+    end
+  end
+
+  test "a user only sees their own report rows" do
     alice = auth(signup("alice@example.com"))
     bob   = auth(signup("bob@example.com"))
+    site  = create_site(alice, "shop.example.com", "Shop")
+    create_detail(alice, site["id"], "2026-10", 999)
 
-    post "/report/snapshots", params: { snapshot: { title: "Alice secret" } }, headers: alice, as: :json
-    id = response.parsed_body["id"]
-
-    get "/report/snapshots/#{id}", headers: bob
-    assert_response :not_found
-
-    delete "/report/snapshots/#{id}", headers: bob
-    assert_response :not_found
+    [ "via_join", "via_service" ].each do |way|
+      get "/report/reports/#{way}", headers: bob
+      assert_equal 0, response.parsed_body["count"], way
+    end
   end
 
   private
+
+  def clean_tables
+    [ Report::Detail, Website::Site, System::User ].each(&:delete_all)
+  end
 
   # Sign up and return the token
   def signup(email)
@@ -145,8 +179,16 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
     response.parsed_body["token"]
   end
 
-  def create_event(headers, name, value)
-    post "/analysis/events", params: { event: { name: name, value: value } }, headers: headers, as: :json
+  def create_site(headers, domain, name)
+    post "/website/sites", params: { site: { domain: domain, name: name } }, headers: headers, as: :json
+    assert_response :created
+    response.parsed_body
+  end
+
+  def create_detail(headers, site_id, period, visits, page_views = 0)
+    post "/report/details",
+         params: { detail: { site_id: site_id, period: period, visits: visits, page_views: page_views, bounce_rate: 40 } },
+         headers: headers, as: :json
     assert_response :created
   end
 

@@ -1,6 +1,6 @@
-module Analysis
+module Website
   class Engine < ::Rails::Engine
-    # Namespace `Analysis::`, table names get the `analysis_` prefix (e.g. analysis_events).
-    isolate_namespace Analysis
+    # Namespace `Website::`, table names get the `website_` prefix (e.g. website_sites).
+    isolate_namespace Website
   end
 end

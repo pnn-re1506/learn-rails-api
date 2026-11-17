@@ -1,8 +1,9 @@
-# Each module has its own database:
-#   system   -> MySQL       (engines/system)
-#   analysis -> PostgreSQL  (engines/analysis)
-#   report   -> PostgreSQL  (engines/report)
+# Each module has its own database, but all three live on the SAME MySQL server:
+#   system  -> system_*   (engines/system)
+#   website -> website_*  (engines/website)
+#   report  -> report_*   (engines/report)
 # `migrations_paths` decides which migrations run on which database.
+# Being on one server is what lets Report JOIN a Website table (see Website::ReportJoin).
 
 mysql: &mysql
   adapter: mysql2
@@ -13,26 +14,17 @@ mysql: &mysql
   password: <%= ENV.fetch("MYSQL_PASSWORD", "password") %>
   pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
 
-postgres: &postgres
-  adapter: postgresql
-  encoding: unicode
-  host: <%= ENV.fetch("PG_HOST", "localhost") %>
-  port: <%= ENV.fetch("PG_PORT", 5432) %>
-  username: <%= ENV.fetch("PG_USER", "postgres") %>
-  password: <%= ENV.fetch("PG_PASSWORD", "password") %>
-  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
-
 development:
   system:
     <<: *mysql
     database: system_dev
     migrations_paths: engines/system/db/migrate
-  analysis:
-    <<: *postgres
-    database: analysis_dev
-    migrations_paths: engines/analysis/db/migrate
+  website:
+    <<: *mysql
+    database: website_dev
+    migrations_paths: engines/website/db/migrate
   report:
-    <<: *postgres
+    <<: *mysql
     database: report_dev
     migrations_paths: engines/report/db/migrate
 
@@ -41,11 +33,11 @@ test:
     <<: *mysql
     database: system_test
     migrations_paths: engines/system/db/migrate
-  analysis:
-    <<: *postgres
-    database: analysis_test
-    migrations_paths: engines/analysis/db/migrate
+  website:
+    <<: *mysql
+    database: website_test
+    migrations_paths: engines/website/db/migrate
   report:
-    <<: *postgres
+    <<: *mysql
     database: report_test
     migrations_paths: engines/report/db/migrate

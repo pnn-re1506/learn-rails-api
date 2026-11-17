@@ -1,8 +1,8 @@
 Gem::Specification.new do |spec|
-  spec.name    = "analysis"
+  spec.name    = "website"
   spec.version = "0.1.0"
   spec.authors = [ "learn-rails-api" ]
-  spec.summary = "Analysis module: record events and summarize them"
+  spec.summary = "Website module: basic information about websites (domain, name)"
 
   spec.files = Dir["{app,config,db,lib}/**/*"]
 

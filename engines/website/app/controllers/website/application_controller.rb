@@ -1,4 +1,4 @@
-module Analysis
+module Website
   class ApplicationController < ActionController::API
     # Borrow login from the System module (through its "front door", System::Authentication).
     include System::Authentication

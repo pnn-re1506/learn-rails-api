@@ -4,9 +4,9 @@ module System
     # into the `password_digest` column. The plain password is never stored.
     has_secure_password
 
-    # Note: do NOT declare `has_many :events` here. Events belong to the Analysis module
+    # Note: do NOT declare `has_many :details` here. Details belong to the Report module
     # (and live in another database). System must not know about other modules
-    # (one-way dependency: Analysis -> System, Report -> System).
+    # (one-way dependency: Website -> System, Report -> System).
 
     # Normalize the email before saving / searching: "  Bob@Mail.COM " -> "bob@mail.com"
     normalizes :email, with: ->(email) { email.strip.downcase }

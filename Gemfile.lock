@@ -1,17 +1,10 @@
 PATH
-  remote: engines/analysis
-  specs:
-    analysis (0.1.0)
-      rails (~> 8.1)
-      system
-
-PATH
   remote: engines/report
   specs:
     report (0.1.0)
-      analysis
       rails (~> 8.1)
       system
+      website
 
 PATH
   remote: engines/system
@@ -20,6 +13,13 @@ PATH
       bcrypt (~> 3.1)
       jwt (~> 2.9)
       rails (~> 8.1)
+
+PATH
+  remote: engines/website
+  specs:
+    website (0.1.0)
+      rails (~> 8.1)
+      system
 
 GEM
   remote: https://rubygems.org/
@@ -165,13 +165,6 @@ GEM
       racc (~> 1.4)
     nokogiri (1.19.7-x86_64-linux-musl)
       racc (~> 1.4)
-    pg (1.7.0)
-    pg (1.7.0-aarch64-linux)
-    pg (1.7.0-aarch64-linux-musl)
-    pg (1.7.0-arm64-darwin)
-    pg (1.7.0-x86_64-darwin)
-    pg (1.7.0-x86_64-linux)
-    pg (1.7.0-x86_64-linux-musl)
     pp (0.6.4)
       prettyprint
     prettyprint (0.2.1)
@@ -262,14 +255,13 @@ PLATFORMS
   x86_64-linux-musl
 
 DEPENDENCIES
-  analysis!
   mysql2 (~> 0.5)
-  pg (~> 1.5)
   puma (>= 5.0)
   rails (~> 8.1.4)
   report!
   system!
   tzinfo-data
+  website!
 
 BUNDLED WITH
    2.6.9

@@ -1,6 +1,5 @@
-# Routes of the Analysis engine. The main app mounts it at "/analysis", so the real URLs are:
-#   GET/POST /analysis/events, GET /analysis/summary
-Analysis::Engine.routes.draw do
-  resources :events, only: %i[index create]   # -> Analysis::EventsController
-  resource  :summary, only: :show             # -> Analysis::SummariesController#show
+# Routes of the Website engine. The main app mounts it at "/website", so the real URLs are:
+#   GET/POST /website/sites, GET /website/sites/:id
+Website::Engine.routes.draw do
+  resources :sites, only: %i[index show create]   # -> Website::SitesController
 end

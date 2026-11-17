@@ -1,3 +1,5 @@
+> **Lưu ý:** tài liệu này mô tả phiên bản đầu (module Analysis, Report lưu snapshot, 2 loại DB). Codebase hiện tại đã đổi sang Website + Report trên cùng MySQL; xem `README.md`.
+
 # Báo cáo: Rails modular monolith trong `learn-rails-api`
 
 Tài liệu này mô tả codebase demo đang làm gì, và bài học nào áp dụng được khi gộp nhiều ứng dụng Rails riêng thành một source monolith.
