@@ -1,43 +1,56 @@
-# Each module has its own database, but all three live on the SAME MySQL server:
-#   system  -> system_*   (engines/system)
-#   website -> website_*  (engines/website)
-#   report  -> report_*   (engines/report)
+# Each module has its own database AND its own MySQL server (3 different ports):
+#   system  -> system_*   :3307  (engines/system)
+#   website -> website_*  :3308  (engines/website)
+#   report  -> report_*   :3309  (engines/report)
 # `migrations_paths` decides which migrations run on which database.
-# Being on one server is what lets Report JOIN a Website table (see Website::ReportJoin).
+# The servers are separate, so Report cannot write `website_dev`.`sites` in a query. Instead the report
+# server holds a FEDERATED table `sites` that points to the website server (see Website::ReportJoin).
+# The *_MYSQL_HOST / *_MYSQL_PORT variables point to every server; the defaults match docker-compose
+# when Rails runs on your machine (inside Docker, docker-compose sets the service names and port 3306).
 
 mysql: &mysql
   adapter: mysql2
   encoding: utf8mb4
-  host: <%= ENV.fetch("MYSQL_HOST", "localhost") %>
-  port: <%= ENV.fetch("MYSQL_PORT", 3306) %>
   username: <%= ENV.fetch("MYSQL_USER", "root") %>
   password: <%= ENV.fetch("MYSQL_PASSWORD", "password") %>
   pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
 
+system: &system
+  <<: *mysql
+  host: <%= ENV.fetch("SYSTEM_MYSQL_HOST", "localhost") %>
+  port: <%= ENV.fetch("SYSTEM_MYSQL_PORT", 3307) %>
+  migrations_paths: engines/system/db/migrate
+
+website: &website
+  <<: *mysql
+  host: <%= ENV.fetch("WEBSITE_MYSQL_HOST", "localhost") %>
+  port: <%= ENV.fetch("WEBSITE_MYSQL_PORT", 3308) %>
+  migrations_paths: engines/website/db/migrate
+
+report: &report
+  <<: *mysql
+  host: <%= ENV.fetch("REPORT_MYSQL_HOST", "localhost") %>
+  port: <%= ENV.fetch("REPORT_MYSQL_PORT", 3309) %>
+  migrations_paths: engines/report/db/migrate
+
 development:
   system:
-    <<: *mysql
+    <<: *system
     database: system_dev
-    migrations_paths: engines/system/db/migrate
   website:
-    <<: *mysql
+    <<: *website
     database: website_dev
-    migrations_paths: engines/website/db/migrate
   report:
-    <<: *mysql
+    <<: *report
     database: report_dev
-    migrations_paths: engines/report/db/migrate
 
 test:
   system:
-    <<: *mysql
+    <<: *system
     database: system_test
-    migrations_paths: engines/system/db/migrate
   website:
-    <<: *mysql
+    <<: *website
     database: website_test
-    migrations_paths: engines/website/db/migrate
   report:
-    <<: *mysql
+    <<: *report
     database: report_test
-    migrations_paths: engines/report/db/migrate

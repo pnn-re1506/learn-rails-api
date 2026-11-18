@@ -1,6 +1,6 @@
 module Report
   class Engine < ::Rails::Engine
-    # Namespace `Report::`, table names get the `report_` prefix (e.g. report_details).
+    # Namespace `Report::`, table names have no prefix (see Report.table_name_prefix), e.g. `details`.
     isolate_namespace Report
   end
 end

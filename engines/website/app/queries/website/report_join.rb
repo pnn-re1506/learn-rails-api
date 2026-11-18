@@ -1,22 +1,23 @@
-# "Front door" #2 of the Website module for other modules (approach 1: cross-database SQL JOIN).
+# "Front door" #2 of the Website module for other modules (approach 1: SQL JOIN through FEDERATED).
 #
-# All three databases live on the SAME MySQL server, and in MySQL a "database" is just a schema,
-# so one connection can read another database's table by writing `database`.`table`.
-# Report runs ONE query on its own connection and joins this table into it.
+# Website lives on its OWN MySQL server (another port, possibly another machine), so Report's
+# connection cannot reach it directly. Instead the report database holds a FEDERATED table with
+# the same name as Website's table (`sites`, see the report migration CreateFederatedSites):
+# it stores nothing, MySQL forwards each read to the website server.
+# For Report that table is local, so it runs ONE query on its own connection and JOINs `sites` into it.
 #
-# The knowledge of "which database and which table" stays here, in the module that owns the table.
-# Report only calls these methods; it never writes `website_dev` or `website_sites` itself.
+# The knowledge of "which table and which columns" stays here, in the module that owns the table.
+# Report only calls these methods; it never writes `sites` itself.
 module Website
   module ReportJoin
-    # `website_dev`.`website_sites` (the database name differs per environment: _dev, _test...)
+    # `sites`: the federated table in the report database. Same name as Website's own table.
     def self.sites_table
-      conn = Site.lease_connection
-      [ Site.connection_db_config.database, Site.table_name ].map { |name| conn.quote_table_name(name) }.join(".")
+      Site.lease_connection.quote_table_name(Site.table_name)
     end
 
     # LEFT JOIN keeps report rows whose site was deleted (site columns are then NULL),
     # because there is no foreign key between two databases.
-    # `fk_column` is the column of the calling table that holds the site id, e.g. "report_details.site_id".
+    # `fk_column` is the column of the calling table that holds the site id, e.g. "details.site_id".
     def self.left_join_sql(fk_column)
       "LEFT JOIN #{sites_table} ON #{sites_table}.id = #{fk_column}"
     end

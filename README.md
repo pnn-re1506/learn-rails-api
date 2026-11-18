@@ -1,21 +1,21 @@
 # learn-rails-api
 
-API Rails demo **Modular Monolith**: 1 app Rails, chia thành 3 module (Rails Engine), mỗi module một database riêng.
+API Rails demo **Modular Monolith**: 1 app Rails, chia thành 3 module (Rails Engine), mỗi module một database riêng, mỗi database một MySQL server riêng.
 
 | Module | Thư mục | Database | Chức năng |
 |---|---|---|---|
-| System | `engines/system` | MySQL `system_*` | Đăng ký, đăng nhập, JWT |
-| Website | `engines/website` | MySQL `website_*` | Thông tin website: `domain`, `name` |
-| Report | `engines/report` | MySQL `report_*` | Số liệu chi tiết theo website và tháng, ghép với Website thành report cuối |
+| System | `engines/system` | MySQL `system_*` (port 3307) | Đăng ký, đăng nhập, JWT |
+| Website | `engines/website` | MySQL `website_*` (port 3308) | Thông tin website: `domain`, `name` |
+| Report | `engines/report` | MySQL `report_*` (port 3309) | Số liệu chi tiết theo website và tháng, ghép với Website thành report cuối |
 
 ```
 Report ──> Website ──> System      (phụ thuộc một chiều)
 ```
 
-- Cả 3 database nằm trên **cùng một MySQL server** (3 schema khác nhau).
+- 3 database nằm trên **3 MySQL server khác nhau** (3 port). Tên bảng không có prefix module: `users`, `sites`, `details`.
 - Website và Report dùng `System::Authentication` để bắt buộc đăng nhập.
 - Report ghép dữ liệu Website theo **hai cách** để so sánh (cùng kết quả JSON):
-  - `via_join`: 1 câu SQL `LEFT JOIN` xuyên database (`Website::ReportJoin` giữ tên DB/bảng).
+  - `via_join`: 1 câu SQL `LEFT JOIN` trên DB của Report. Report không nối thẳng sang server Website được, nên DB Report có bảng **FEDERATED** `sites` (không chứa dữ liệu, mỗi query được MySQL chuyển sang bảng `sites` ở server Website). Xem migration `CreateFederatedSites` và `Website::ReportJoin`.
   - `via_service`: gọi `Website::SiteService` rồi ghép bằng Ruby.
 - Mỗi `ApplicationRecord` của module có `connects_to` trỏ tới DB riêng, khai báo trong `config/database.yml`.
 
@@ -24,17 +24,19 @@ Report ──> Website ──> System      (phụ thuộc một chiều)
 Cần [Docker Desktop](https://www.docker.com/products/docker-desktop/). Không cần cài Ruby.
 
 ```powershell
-docker compose up --build -d     # build image + chạy mysql, app
+docker compose up --build -d     # build image + chạy 3 mysql + app
 docker compose ps                # xem trạng thái
 docker compose logs -f app       # xem log (Ctrl+C để thoát)
 ```
 
-Khi khởi động, app tự chạy `db:prepare`: tạo DB nếu chưa có và migrate cả 3 DB.
+Khi khởi động, app tự chạy `db:prepare`: tạo DB nếu chưa có và migrate cả 3 DB (migration của Report tạo bảng FEDERATED nên bảng `sites` của Website phải có trước; `db:prepare` migrate theo thứ tự `system`, `website`, `report` nên đã đúng). Không có file `db/*_schema.rb`: DB luôn được dựng từ migration, vì bảng FEDERATED trỏ tới một MySQL SERVER theo từng môi trường.
 
 | Service | Từ máy bạn | User / mật khẩu |
 |---|---|---|
 | API | http://localhost:3000 | |
-| MySQL | localhost:3307 | root / password |
+| MySQL system | localhost:3307 | root / password |
+| MySQL website | localhost:3308 | root / password |
+| MySQL report | localhost:3309 | root / password |
 
 Lệnh hay dùng:
 
@@ -42,7 +44,7 @@ Lệnh hay dùng:
 docker compose exec app ruby bin/rails routes                            # xem toàn bộ route
 docker compose exec app ruby bin/rails console                           # Rails console
 docker compose exec -e RAILS_ENV=test app ruby bin/rails test            # chạy test
-docker compose exec mysql mysql -uroot -ppassword -e "SHOW DATABASES"    # xem DB MySQL
+docker compose exec mysql-report mysql -uroot -ppassword -e "SHOW DATABASES"   # xem DB MySQL (mysql-system / mysql-website / mysql-report)
 docker compose exec app ruby bin/rails db:seed                          # nạp dữ liệu mẫu (login demo@example.com / secret123)
 docker compose up --build -d                                             # sau khi sửa code
 docker compose down                                                      # tắt (giữ dữ liệu)
@@ -96,12 +98,12 @@ Bằng Postman: gọi `POST /system/signup` hoặc `/system/login`, copy `token`
 
 ## Xem dữ liệu bằng DBeaver (hoặc tool tương tự)
 
-MySQL: host `localhost`, port `3307`, user `root`, password `password`. Ba database: `system_dev` (`system_users`), `website_dev` (`website_sites`), `report_dev` (`report_details`). Thử join tay:
+MySQL: host `localhost`, user `root`, password `password`. Ba server: `system_dev` (bảng `users`) ở port `3307`, `website_dev` (bảng `sites`) ở port `3308`, `report_dev` (bảng `details` và `sites` FEDERATED) ở port `3309`. Kết nối vào port `3309`, thử join tay:
 
 ```sql
 SELECT d.period, d.visits, s.domain, s.name
-FROM report_dev.report_details d
-LEFT JOIN website_dev.website_sites s ON s.id = d.site_id;
+FROM report_dev.details d
+LEFT JOIN report_dev.sites s ON s.id = d.site_id;   -- sites là bảng FEDERATED, dữ liệu thật ở port 3308
 ```
 
 ## Thêm một module mới (ví dụ `billing`)

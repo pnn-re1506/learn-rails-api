@@ -5,7 +5,7 @@ module Report
   #   ?sort=domain   order by domain (default: visits, highest first)
   class ReportsController < ApplicationController
     # GET /report/reports/via_join
-    # Approach 1: ONE SQL query joining report_details with website_sites across databases.
+    # Approach 1: ONE SQL query joining details with the federated sites table.
     # Filtering and sorting by a website column happen inside MySQL.
     def via_join
       details = user_details.with_site

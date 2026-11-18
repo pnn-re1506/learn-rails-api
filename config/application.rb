@@ -17,5 +17,10 @@ module LearnApi
     # API mode: drops web-only middleware (session, cookie, flash...)
     # and controllers inherit from ActionController::API instead of ActionController::Base
     config.api_only = true
+
+    # No db/*_schema.rb: the report database has a FEDERATED table whose CONNECTION names a MySQL SERVER
+    # per environment (website_development, website_test). A schema file dumped from development
+    # would make the test database read development data, so databases are always built from migrations.
+    config.active_record.dump_schema_after_migration = false
   end
 end

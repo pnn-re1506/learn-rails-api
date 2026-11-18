@@ -1,14 +1,44 @@
 services:
-  # One MySQL server holding 3 databases: system_*, website_* and report_*
-  mysql:
+  # 3 separate MySQL servers, one per module (3 ports on your machine, always 3306 inside Docker)
+  mysql-system:
     image: mysql:8.0
     command: --default-authentication-plugin=mysql_native_password
     environment:
       MYSQL_ROOT_PASSWORD: password
     ports:
-      - "3307:3306"            # Connect from your machine (DBeaver...) at localhost:3307
+      - "3307:3306"            # system_*  -> localhost:3307
     volumes:
-      - mysqldata:/var/lib/mysql
+      - mysql-system-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ppassword"]
+      interval: 5s
+      retries: 20
+
+  mysql-website:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "3308:3306"            # website_* -> localhost:3308
+    volumes:
+      - mysql-website-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ppassword"]
+      interval: 5s
+      retries: 20
+
+  # The report server reads website data through a FEDERATED table,
+  # so the FEDERATED engine must be switched on (it is disabled by default).
+  mysql-report:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password --federated
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+    ports:
+      - "3309:3306"            # report_*  -> localhost:3309
+    volumes:
+      - mysql-report-data:/var/lib/mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-ppassword"]
       interval: 5s
@@ -19,13 +49,24 @@ services:
     build: .
     environment:
       RAILS_ENV: development
-      MYSQL_HOST: mysql          # service name = hostname inside the Docker network
       MYSQL_PASSWORD: password
+      SYSTEM_MYSQL_HOST: mysql-system     # service name = hostname inside the Docker network
+      SYSTEM_MYSQL_PORT: 3306
+      WEBSITE_MYSQL_HOST: mysql-website
+      WEBSITE_MYSQL_PORT: 3306
+      REPORT_MYSQL_HOST: mysql-report
+      REPORT_MYSQL_PORT: 3306
     ports:
       - "3000:3000"
     depends_on:
-      mysql:
+      mysql-system:
+        condition: service_healthy
+      mysql-website:
+        condition: service_healthy
+      mysql-report:
         condition: service_healthy
 
 volumes:
-  mysqldata:
+  mysql-system-data:
+  mysql-website-data:
+  mysql-report-data:
