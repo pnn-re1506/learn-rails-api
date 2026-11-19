@@ -1,7 +1,8 @@
 module Report
   class ApplicationController < ActionController::API
-    # Borrow login from the System module (through its "front door", System::Authentication).
-    include System::Authentication
+    # Borrow login AND permission checks from the System module (through its "front doors").
+    include System::Authentication   # -> current_user, 401
+    include System::Authorization    # -> authorize!, 403
 
     rescue_from ActiveRecord::RecordNotFound do
       render json: { error: "Not found" }, status: :not_found

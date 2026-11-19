@@ -1,12 +1,17 @@
 # Mock data for trying the API:  bin/rails db:seed   (safe to run more than once)
 #
-# Login:  demo@example.com / secret123
+# Logins (password secret123 for all):
+#   demo@example.com    member, OWNER of the 4 sites below
+#   viewer@example.com  member, VIEWER of shop.example.com only (can see it, cannot edit it or add report rows)
+#   admin@example.com   admin, sees and manages everything
 # Data lives in 3 different databases, which is the whole point of the demo:
 #   System::User   -> system_dev   (users)
 #   Website::Site  -> website_dev  (domain, name)
 #   Report::Detail -> report_dev   (monthly statistics, points to a site by id)
 
-user = System::User.find_or_create_by!(email: "demo@example.com") { |u| u.password = "secret123" }
+user   = System::User.find_or_create_by!(email: "demo@example.com")   { |u| u.password = "secret123" }
+viewer = System::User.find_or_create_by!(email: "viewer@example.com") { |u| u.password = "secret123" }
+System::User.find_or_create_by!(email: "admin@example.com") { |u| u.password = "secret123"; u.role = :admin }
 
 sites = [
   [ "shop.example.com",   "Example Shop" ],
@@ -16,6 +21,10 @@ sites = [
 ].map do |domain, name|
   Website::Site.find_or_create_by!(domain: domain) { |s| s.name = name }
 end
+
+# Permissions on each site (website database). demo owns everything, viewer may only look at the shop.
+sites.each { |site| site.members.find_or_create_by!(user_id: user.id) { |m| m.role = :owner } }
+sites.first.members.find_or_create_by!(user_id: viewer.id) { |m| m.role = :viewer }
 
 # [site index, period, visits, page_views, bounce_rate]
 stats = [
@@ -39,4 +48,5 @@ end
 Report::Detail.insert_all([ { user_id: user.id, site_id: 999_999, period: "2026-10", visits: 10, page_views: 20,
                               bounce_rate: 0, created_at: Time.current, updated_at: Time.current } ]) unless Report::Detail.exists?(user_id: user.id, site_id: 999_999)
 
-puts "Seeded: #{System::User.count} users, #{Website::Site.count} sites, #{Report::Detail.count} report rows"
+puts "Seeded: #{System::User.count} users, #{Website::Site.count} sites, " \
+     "#{Website::SiteMember.count} site members, #{Report::Detail.count} report rows"

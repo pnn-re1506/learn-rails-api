@@ -3,6 +3,8 @@ require "test_helper"
 # Tests the whole flow like a real client: signup -> login -> Website -> Report.
 # Each request may touch a different database: System, Website and Report (3 databases, one MySQL server).
 class ApiFlowTest < ActionDispatch::IntegrationTest
+  include ApiTestHelpers   # signup, create_site, create_detail, auth, clean_tables (test/test_helper.rb)
+
   # The JOIN endpoint reads a Website table through Report's connection. With transactional tests each
   # connection keeps its writes uncommitted, so that join would not see the sites the test just created.
   # So these tests really commit, and we empty the tables ourselves.
@@ -164,35 +166,5 @@ class ApiFlowTest < ActionDispatch::IntegrationTest
       get "/report/reports/#{way}", headers: bob
       assert_equal 0, response.parsed_body["count"], way
     end
-  end
-
-  private
-
-  def clean_tables
-    [ Report::Detail, Website::Site, System::User ].each(&:delete_all)
-  end
-
-  # Sign up and return the token
-  def signup(email)
-    post "/system/signup", params: { user: { email: email, password: "secret123" } }, as: :json
-    assert_response :created
-    response.parsed_body["token"]
-  end
-
-  def create_site(headers, domain, name)
-    post "/website/sites", params: { site: { domain: domain, name: name } }, headers: headers, as: :json
-    assert_response :created
-    response.parsed_body
-  end
-
-  def create_detail(headers, site_id, period, visits, page_views = 0)
-    post "/report/details",
-         params: { detail: { site_id: site_id, period: period, visits: visits, page_views: page_views, bounce_rate: 40 } },
-         headers: headers, as: :json
-    assert_response :created
-  end
-
-  def auth(token)
-    { "Authorization" => "Bearer #{token}" }
   end
 end

@@ -45,7 +45,8 @@ docker compose exec app ruby bin/rails routes                            # xem t
 docker compose exec app ruby bin/rails console                           # Rails console
 docker compose exec -e RAILS_ENV=test app ruby bin/rails test            # chạy test
 docker compose exec mysql-report mysql -uroot -ppassword -e "SHOW DATABASES"   # xem DB MySQL (mysql-system / mysql-website / mysql-report)
-docker compose exec app ruby bin/rails db:seed                          # nạp dữ liệu mẫu (login demo@example.com / secret123)
+docker compose exec app ruby bin/rails system:make_admin EMAIL=a@b.com # cấp quyền admin cho một user
+docker compose exec app ruby bin/rails db:seed                          # nạp dữ liệu mẫu (xem mục Phân quyền)
 docker compose up --build -d                                             # sau khi sửa code
 docker compose down                                                      # tắt (giữ dữ liệu)
 docker compose down -v                                                   # tắt và xóa dữ liệu
@@ -53,22 +54,41 @@ docker compose down -v                                                   # tắt
 
 ## Endpoints
 
-| Method | Đường dẫn | Token | Mô tả |
+| Method | Đường dẫn | Quyền | Mô tả |
 |---|---|---|---|
-| POST | `/system/signup` | Không | Đăng ký, trả token |
-| POST | `/system/login` | Không | Đăng nhập, trả token |
-| GET | `/system/me` | Có | Thông tin user hiện tại |
-| GET | `/website/sites` | Có | Danh sách website |
-| GET | `/website/sites/:id` | Có | Xem một website |
-| POST | `/website/sites` | Có | Tạo website `{ "site": { "domain", "name" } }` |
-| GET | `/report/details` | Có | Số liệu thô của Report (chưa có domain/name) |
-| POST | `/report/details` | Có | Tạo `{ "detail": { "site_id", "period": "2026-10", "visits", "page_views", "bounce_rate" } }` |
-| GET | `/report/reports/via_join` | Có | Report cuối, ghép bằng SQL JOIN xuyên DB |
-| GET | `/report/reports/via_service` | Có | Report cuối, ghép bằng `Website::SiteService` |
+| POST | `/system/signup` | Không cần token | Đăng ký (luôn là `member`), trả token |
+| POST | `/system/login` | Không cần token | Đăng nhập, trả token |
+| GET | `/system/me` | Đăng nhập | Thông tin user hiện tại (`id`, `email`, `role`) |
+| GET | `/system/users` | admin | Danh sách user |
+| PATCH | `/system/users/:id` | admin (không đổi được role của chính mình) | Đổi role `{ "user": { "role": "admin" } }` |
+| GET | `/website/sites` | Đăng nhập | Các site mình là thành viên (admin: tất cả) |
+| GET | `/website/sites/:id` | Thành viên site | Xem một website |
+| POST | `/website/sites` | Đăng nhập | Tạo website `{ "site": { "domain", "name" } }`, người tạo thành `owner` |
+| PATCH | `/website/sites/:id` | owner, editor, admin | Sửa website |
+| DELETE | `/website/sites/:id` | owner, admin | Xóa website |
+| GET | `/website/sites/:id/members` | Thành viên site | Danh sách thành viên và role |
+| POST | `/website/sites/:id/members` | owner, admin | Thêm `{ "member": { "email", "role": "viewer\|editor\|owner" } }` |
+| PATCH | `/website/sites/:id/members/:user_id` | owner, admin | Đổi role `{ "member": { "role" } }` |
+| DELETE | `/website/sites/:id/members/:user_id` | owner, admin | Xóa thành viên (không xóa được owner cuối cùng) |
+| GET | `/report/details` | Đăng nhập | Số liệu thô CỦA MÌNH (chưa có domain/name) |
+| POST | `/report/details` | owner, editor của site, admin | Tạo `{ "detail": { "site_id", "period": "2026-10", "visits", "page_views", "bounce_rate" } }` |
+| GET | `/report/reports/via_join` | Đăng nhập | Report cuối, ghép bằng SQL JOIN xuyên DB |
+| GET | `/report/reports/via_service` | Đăng nhập | Report cuối, ghép bằng `Website::SiteService` |
 
 Hai endpoint report nhận cùng tham số: `?domain=blog` (lọc theo domain), `?sort=domain` (mặc định sắp theo visits giảm dần).
 
-Mã lỗi: `400` thiếu tham số, `401` chưa đăng nhập hoặc token sai, `404` không tìm thấy (kể cả dữ liệu của người khác), `422` dữ liệu không hợp lệ.
+Mã lỗi: `400` thiếu tham số, `401` chưa đăng nhập hoặc token sai, `403` đã đăng nhập nhưng không đủ quyền, `404` không tìm thấy (kể cả site/dữ liệu của người khác: giấu luôn sự tồn tại), `422` dữ liệu không hợp lệ.
+
+## Phân quyền (authorization)
+
+Hai lớp:
+
+1. **Role toàn hệ thống** (module System, cột `users.role`): `member` (mặc định) hoặc `admin` (làm được mọi thứ). Đăng ký luôn ra `member`. Admin đầu tiên tạo bằng `bin/rails system:make_admin EMAIL=...`.
+2. **Role trên từng site** (module Website, bảng `site_members`): `viewer` (xem), `editor` (+ sửa site, thêm số liệu report), `owner` (+ xóa site, quản lý thành viên). Mỗi site luôn còn ít nhất 1 owner.
+
+Quy tắc nằm trong các policy: `System::UserPolicy`, `Website::SitePolicy`, `Report::DetailPolicy` (kế thừa `System::Policy`). Controller gọi `authorize!(policy, :action?)` (concern `System::Authorization`), sai thì trả `403`.
+
+User mẫu sau `db:seed` (mật khẩu đều là `secret123`): `demo@example.com` (owner 4 site), `viewer@example.com` (viewer của shop.example.com), `admin@example.com` (admin).
 
 ## Test thử bằng PowerShell
 

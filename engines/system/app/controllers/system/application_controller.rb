@@ -1,6 +1,7 @@
 module System
   class ApplicationController < ActionController::API
-    include Authentication
+    include Authentication   # who are you?        -> 401
+    include Authorization    # are you allowed to? -> 403
 
     # Handle errors in one place so child controllers don't need their own rescue.
     rescue_from ActiveRecord::RecordNotFound do
@@ -18,8 +19,12 @@ module System
     def render_auth(user, status:)
       render json: {
         token: JsonWebToken.encode(user.id),
-        user: user.as_json(only: %i[id email])
+        user: user_json(user)
       }, status: status
+    end
+
+    def user_json(user)
+      user.as_json(only: %i[id email role])
     end
 
     def render_validation_errors(record)

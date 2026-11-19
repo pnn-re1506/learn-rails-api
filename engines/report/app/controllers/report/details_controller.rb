@@ -8,14 +8,16 @@ module Report
 
     # POST /report/details
     #   body: { "detail": { "site_id": 1, "period": "2026-10", "visits": 1200, "page_views": 5400, "bounce_rate": 41.5 } }
+    # Order of checks: 422 first (bad period, site does not exist...), then 403
+    # (the site exists but you are not its owner/editor).
     def create
       detail = user_details.build(detail_params)
+      return render_validation_errors(detail) unless detail.valid?
 
-      if detail.save
-        render json: detail, status: :created
-      else
-        render_validation_errors(detail)
-      end
+      authorize!(DetailPolicy.new(current_user, detail), :create?)
+
+      detail.save!
+      render json: detail, status: :created
     end
 
     private

@@ -17,6 +17,13 @@ module Website
       Site.exists?(id)
     end
 
+    # May `user` (a System::User) add report statistics for this site? (owner, editor or admin)
+    # The rule itself stays in Website::SitePolicy: Report never needs to know about site roles.
+    def self.can_write_reports?(user, site_id)
+      site = Site.find_by(id: site_id)
+      site.present? && SitePolicy.new(user, site).write_reports?
+    end
+
     def self.present(site)
       { id: site.id, domain: site.domain, name: site.name }
     end
