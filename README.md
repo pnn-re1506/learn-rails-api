@@ -52,6 +52,49 @@ docker compose down                                                      # tắt
 docker compose down -v                                                   # tắt và xóa dữ liệu
 ```
 
+## Demo tách service theo nhóm route
+
+`compose.split.yml` dùng chung một image Rails cho `app-system`, `app-website` và `app-report`. Nginx chuyển `/system`, `/website` và `/report` tới service tương ứng. Dùng PowerShell 7, Docker Compose v2.24.4 trở lên và một project riêng để demo trên bộ dữ liệu riêng. Demo mở HTTP tại `http://127.0.0.1:8080`.
+
+```powershell
+if (-not (Test-Path tmp/split.env)) {
+  New-Item -ItemType Directory -Path tmp -Force | Out-Null
+  $signingKey = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(64))
+  Set-Content tmp/split.env "SECRET_KEY_BASE=$signingKey" -Encoding ascii
+}
+
+$split = @('--env-file', 'tmp/split.env', '-p', 'learn-rails-api-split', '-f', 'docker-compose.yml', '-f', 'compose.split.yml')
+docker build -t learn-rails-api:v1 .
+docker compose @split up -d --wait --wait-timeout 120
+docker compose @split exec app-system ruby bin/rails db:seed
+docker compose @split ps -a
+```
+
+Tác vụ `migrate` chờ các MySQL service healthy, chạy `db:prepare` rồi thoát với mã `0`. Ba web service chờ kết quả này khi dựng stack và dùng cùng khóa JWT từ `tmp/split.env`. Có thể sử dụng các request ở mục **Test thử bằng PowerShell** với `$base = "http://127.0.0.1:8080"` sau khi seed bằng lệnh trên.
+
+Để thử cô lập lỗi, chạy `docker compose @split stop app-report`. Gọi `/report/reports/via_service` sẽ lỗi tại proxy. Với JWT còn hạn, `/system/me` và `/website/sites` vẫn chạy. Dùng `docker compose @split up -d --no-deps --wait app-report` để bật lại Report mà không chạy tác vụ migration.
+
+Khi có code mới chỉ ảnh hưởng Report, build và cập nhật service đó. Ví dụ sau áp dụng cho `v2` dùng cùng schema với `v1`.
+
+```powershell
+docker build -t learn-rails-api:v2 .
+$env:REPORT_IMAGE = 'learn-rails-api:v2'
+docker compose @split up -d --no-deps --wait app-report
+
+# Rollback riêng Report
+$env:REPORT_IMAGE = 'learn-rails-api:v1'
+docker compose @split up -d --no-deps --wait app-report
+```
+
+Nếu release có migration, chạy `MIGRATE_IMAGE` tương ứng trước khi cập nhật web. Kiểm tra code cũ và mới đều chạy được trên schema sau migration trong thời gian rollout và rollback.
+
+```powershell
+$env:MIGRATE_IMAGE = 'learn-rails-api:v2'
+docker compose @split run --rm --no-deps migrate
+```
+
+`docker compose @split down` dừng môi trường demo và giữ các volume DB.
+
 ## Endpoints
 
 | Method | Đường dẫn | Quyền | Mô tả |

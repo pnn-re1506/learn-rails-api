@@ -1,4 +1,4 @@
-# One image for the whole app: System + Website + Report run in the same Rails process.
+# One image contains all three engines. Compose selects which routes each server mounts.
 FROM ruby:3.4-slim
 
 # OS libraries: compilers for native gems + client library for MySQL (mysql2)

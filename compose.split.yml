@@ -1,0 +1,83 @@
+x-rails-environment: &rails-environment
+  RAILS_ENV: development
+  MYSQL_PASSWORD: password
+  SYSTEM_MYSQL_HOST: mysql-system
+  SYSTEM_MYSQL_PORT: "3306"
+  WEBSITE_MYSQL_HOST: mysql-website
+  WEBSITE_MYSQL_PORT: "3306"
+  REPORT_MYSQL_HOST: mysql-report
+  REPORT_MYSQL_PORT: "3306"
+
+x-web-environment: &web-environment
+  <<: *rails-environment
+  SECRET_KEY_BASE: ${SECRET_KEY_BASE:?Set SECRET_KEY_BASE for the split deployment}
+
+x-rails-web: &rails-web
+  command: ["bash", "-c", "rm -f tmp/pids/server.pid && exec ruby bin/rails server -b 0.0.0.0 -p 3000"]
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
+  healthcheck:
+    test: ["CMD", "ruby", "-rnet/http", "-e", "exit(Net::HTTP.get_response(URI('http://127.0.0.1:3000/up')).is_a?(Net::HTTPSuccess))"]
+    interval: 5s
+    timeout: 3s
+    retries: 12
+
+services:
+  app:
+    profiles: [monolith]
+
+  mysql-system:
+    ports: !reset []
+
+  mysql-website:
+    ports: !reset []
+
+  mysql-report:
+    ports: !reset []
+
+  migrate:
+    image: ${MIGRATE_IMAGE:-learn-rails-api:v1}
+    command: ["ruby", "bin/rails", "db:prepare"]
+    environment: *rails-environment
+    depends_on:
+      mysql-system:
+        condition: service_healthy
+      mysql-website:
+        condition: service_healthy
+      mysql-report:
+        condition: service_healthy
+
+  app-system:
+    <<: *rails-web
+    image: ${SYSTEM_IMAGE:-learn-rails-api:v1}
+    environment:
+      <<: *web-environment
+      ENABLE_SYSTEM: "1"
+      ENABLE_WEBSITE: "0"
+      ENABLE_REPORT: "0"
+
+  app-website:
+    <<: *rails-web
+    image: ${WEBSITE_IMAGE:-learn-rails-api:v1}
+    environment:
+      <<: *web-environment
+      ENABLE_SYSTEM: "0"
+      ENABLE_WEBSITE: "1"
+      ENABLE_REPORT: "0"
+
+  app-report:
+    <<: *rails-web
+    image: ${REPORT_IMAGE:-learn-rails-api:v1}
+    environment:
+      <<: *web-environment
+      ENABLE_SYSTEM: "0"
+      ENABLE_WEBSITE: "0"
+      ENABLE_REPORT: "1"
+
+  gateway:
+    image: nginx:1.28-alpine
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./config/nginx/split.conf:/etc/nginx/conf.d/default.conf:ro
