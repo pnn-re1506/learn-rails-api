@@ -1,17 +1,6 @@
 module System
-  class ApplicationController < ActionController::API
-    include Authentication   # who are you?        -> 401
-    include Authorization    # are you allowed to? -> 403
-
-    # Handle errors in one place so child controllers don't need their own rescue.
-    rescue_from ActiveRecord::RecordNotFound do
-      render json: { error: "Not found" }, status: :not_found
-    end
-
-    rescue_from ActionController::ParameterMissing do |e|
-      render json: { error: "Missing or invalid parameter: #{e.param}" }, status: :bad_request
-    end
-
+  # Login (401), permission (403) and JSON errors (404/400/422) come from System::BaseController.
+  class ApplicationController < BaseController
     private
 
     # Returns the token + user info. Only picks safe columns,
@@ -25,10 +14,6 @@ module System
 
     def user_json(user)
       user.as_json(only: %i[id email role])
-    end
-
-    def render_validation_errors(record)
-      render json: { errors: record.errors }, status: :unprocessable_content
     end
   end
 end

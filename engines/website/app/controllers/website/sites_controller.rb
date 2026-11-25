@@ -1,53 +1,32 @@
 module Website
+  # CRUD comes from System::CrudActions. Only the site-specific rules are written here.
   class SitesController < ApplicationController
-    # GET /website/sites   -> only the sites the user is a member of (all of them for an admin)
-    def index
-      render json: Site.accessible_by(current_user).order(:domain)
-    end
-
-    # GET /website/sites/:id
-    def show
-      render json: find_accessible_site(params[:id])
-    end
-
-    # POST /website/sites   body: { "site": { "domain": "example.com", "name": "Example Shop" } }
-    # Any logged-in user may create a site and becomes its owner.
-    def create
-      site = Site.new(site_params)
-      site.members.build(user_id: current_user.id, role: :owner)
-
-      if site.save   # site + owner membership are saved in one transaction
-        render json: site, status: :created
-      else
-        render_validation_errors(site)
-      end
-    end
-
-    # PATCH /website/sites/:id   (owner, editor or admin)
-    def update
-      site = find_accessible_site(params[:id])
-      authorize!(SitePolicy.new(current_user, site), :update?)
-
-      if site.update(site_params)
-        render json: site
-      else
-        render_validation_errors(site)
-      end
-    end
-
-    # DELETE /website/sites/:id   (owner or admin)
-    def destroy
-      site = find_accessible_site(params[:id])
-      authorize!(SitePolicy.new(current_user, site), :destroy?)
-
-      site.destroy!
-      head :no_content
-    end
-
     private
 
-    def site_params
-      params.expect(site: %i[domain name])
+    def model_class = Site
+
+    # Only the sites the user is a member of (all of them for an admin); others are 404.
+    def scope = Site.accessible_by(current_user)
+
+    def collection = scope.order(:domain)
+
+    # GET /website/sites?q=shop&sort=domain&direction=desc
+    def search_fields = %i[domain name]
+
+    # body: { "site": { "domain": "example.com", "name": "Example Shop" } }
+    def record_params = params.expect(site: %i[domain name])
+
+    # Any logged-in user may create a site and becomes its owner
+    # (site + owner membership are saved in one transaction).
+    def build_record
+      Site.new(record_params).tap { |site| site.members.build(user_id: current_user.id, role: :owner) }
+    end
+
+    # update: owner, editor or admin. destroy: owner or admin. create: anyone logged in.
+    def authorize_record!(action, site)
+      return if action == :create
+
+      authorize!(SitePolicy.new(current_user, site), :"#{action}?")
     end
   end
 end

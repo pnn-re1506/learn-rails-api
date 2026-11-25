@@ -19,6 +19,12 @@ Report ──> Website ──> System      (phụ thuộc một chiều)
   - `via_service`: gọi `Website::SiteService` rồi ghép bằng Ruby.
 - Mỗi `ApplicationRecord` của module có `connects_to` trỏ tới DB riêng, khai báo trong `config/database.yml`.
 
+## Base controller và Swagger
+
+- `System::BaseController` (`engines/system/app/controllers/system/base_controller.rb`) là lớp cha của mọi `ApplicationController`. Nó gồm: đăng nhập (401), phân quyền (403), `System::ApiResponder` (lỗi 404/400/422) và `System::CrudActions` (index/show/create/update/destroy).
+- Controller mới chỉ cần khai báo `model_class` và `record_params`; route quyết định action nào được mở. Muốn tùy biến thì override hook (`scope`, `collection`, `find_record`, `build_record`, `authorize_record!`, `serialize`) hoặc override cả action. Ví dụ: `Website::SitesController`, `Report::DetailsController`.
+- Swagger UI: http://localhost:3000/api-docs (đọc file `config/openapi.yml`). Đăng nhập `POST /system/login`, bấm **Authorize**, dán token. Khi thêm hoặc sửa endpoint, nhớ cập nhật `config/openapi.yml`.
+
 ## Chạy bằng Docker
 
 Cần [Docker Desktop](https://www.docker.com/products/docker-desktop/). Không cần cài Ruby.

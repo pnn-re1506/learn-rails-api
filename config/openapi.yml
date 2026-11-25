@@ -1,0 +1,533 @@
+openapi: 3.0.3
+info:
+  title: learn-rails-api
+  version: "1.0"
+  description: |
+    Modular monolith: System (auth), Website (sites + members), Report (statistics).
+    Login with `POST /system/login`, then click **Authorize** and paste the token.
+servers:
+  - url: http://localhost:3000
+tags:
+  - name: System
+  - name: Website
+  - name: Report
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  responses:
+    Unauthorized:
+      description: Missing or invalid token
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Forbidden:
+      description: Not allowed to do this
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Record does not exist (or you cannot see it)
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    BadRequest:
+      description: Missing or invalid parameter
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unprocessable:
+      description: Validation failed
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ValidationErrors" }
+  parameters:
+    SiteId:
+      name: site_id
+      in: path
+      required: true
+      schema: { type: integer }
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer }
+    UserId:
+      name: user_id
+      in: path
+      required: true
+      schema: { type: integer }
+      description: The member's USER id (not the membership id)
+    Domain:
+      name: domain
+      in: query
+      schema: { type: string }
+      description: Keep only sites whose domain contains this text
+    Sort:
+      name: sort
+      in: query
+      schema: { type: string, enum: [domain] }
+      description: Order by domain (default is visits, highest first)
+    SiteSearch:
+      name: q
+      in: query
+      schema: { type: string }
+      description: Keep sites whose domain OR name contains this text
+    SiteSort:
+      name: sort
+      in: query
+      schema: { type: string, enum: [id, domain, name] }
+      description: Order by this field (default is domain)
+    DetailSiteId:
+      name: site_id
+      in: query
+      schema: { type: integer }
+      description: Only rows of this site
+    DetailPeriod:
+      name: period
+      in: query
+      schema: { type: string, example: "2026-10" }
+      description: Only rows of this month (YYYY-MM)
+    DetailSort:
+      name: sort
+      in: query
+      schema: { type: string, enum: [id, site_id, period, visits, page_views, bounce_rate] }
+      description: Order by this field (default is period)
+    Direction:
+      name: direction
+      in: query
+      schema: { type: string, enum: [asc, desc], default: asc }
+      description: Direction of `sort`. An unknown `sort` is ignored.
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+    ValidationErrors:
+      type: object
+      properties:
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items: { type: string }
+    User:
+      type: object
+      properties:
+        id: { type: integer }
+        email: { type: string, format: email }
+        role: { type: string, enum: [member, admin] }
+    AuthResponse:
+      type: object
+      properties:
+        token: { type: string }
+        user: { $ref: "#/components/schemas/User" }
+    Credentials:
+      type: object
+      required: [user]
+      properties:
+        user:
+          type: object
+          required: [email, password]
+          properties:
+            email: { type: string, format: email }
+            password: { type: string, minLength: 6 }
+    Site:
+      type: object
+      properties:
+        id: { type: integer }
+        domain: { type: string, example: example.com }
+        name: { type: string, example: Example Shop }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SiteInput:
+      type: object
+      required: [site]
+      properties:
+        site:
+          type: object
+          properties:
+            domain: { type: string, example: example.com }
+            name: { type: string, example: Example Shop }
+    Member:
+      type: object
+      properties:
+        user_id: { type: integer }
+        email: { type: string, format: email }
+        role: { type: string, enum: [viewer, editor, owner] }
+    Detail:
+      type: object
+      properties:
+        id: { type: integer }
+        user_id: { type: integer }
+        site_id: { type: integer }
+        period: { type: string, example: "2026-10" }
+        visits: { type: integer }
+        page_views: { type: integer }
+        bounce_rate: { type: number, example: 41.5 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    DetailInput:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: object
+          required: [site_id, period, visits, page_views, bounce_rate]
+          properties:
+            site_id: { type: integer }
+            period: { type: string, example: "2026-10", description: "YYYY-MM" }
+            visits: { type: integer, minimum: 0 }
+            page_views: { type: integer, minimum: 0 }
+            bounce_rate: { type: number, minimum: 0, maximum: 100 }
+    ReportRow:
+      type: object
+      properties:
+        id: { type: integer }
+        period: { type: string }
+        visits: { type: integer }
+        page_views: { type: integer }
+        bounce_rate: { type: number }
+        site:
+          nullable: true
+          type: object
+          description: null when the site no longer exists
+          properties:
+            id: { type: integer }
+            domain: { type: string }
+            name: { type: string }
+    Report:
+      type: object
+      properties:
+        via: { type: string, enum: [join, service] }
+        count: { type: integer }
+        total_visits: { type: integer }
+        total_page_views: { type: integer }
+        rows:
+          type: array
+          items: { $ref: "#/components/schemas/ReportRow" }
+
+security:
+  - bearerAuth: []
+
+paths:
+  /up:
+    get:
+      summary: Health check
+      security: []
+      responses:
+        "200": { description: App is up }
+
+  # ---------------- System ----------------
+  /system/signup:
+    post:
+      tags: [System]
+      summary: Create an account (always role member)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /system/login:
+    post:
+      tags: [System]
+      summary: Log in and get a token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AuthResponse" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /system/me:
+    get:
+      tags: [System]
+      summary: Current user
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /system/users:
+    get:
+      tags: [System]
+      summary: List users (admin only)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+  /system/users/{id}:
+    patch:
+      tags: [System]
+      summary: Change a user's role (admin only, not yourself)
+      parameters:
+        - $ref: "#/components/parameters/Id"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user:
+                  type: object
+                  properties:
+                    role: { type: string, enum: [member, admin] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/User" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  # ---------------- Website ----------------
+  /website/sites:
+    get:
+      tags: [Website]
+      summary: List my sites (all sites for an admin)
+      parameters:
+        - $ref: "#/components/parameters/SiteSearch"
+        - $ref: "#/components/parameters/SiteSort"
+        - $ref: "#/components/parameters/Direction"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Website]
+      summary: Create a site (you become its owner)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /website/sites/{id}:
+    parameters:
+      - $ref: "#/components/parameters/Id"
+    get:
+      tags: [Website]
+      summary: Show a site
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Website]
+      summary: Update a site (owner, editor or admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SiteInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Site" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      tags: [Website]
+      summary: Delete a site (owner or admin)
+      responses:
+        "204": { description: Deleted }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+  /website/sites/{site_id}/members:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+    get:
+      tags: [Website]
+      summary: List members (any member of the site)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Website]
+      summary: Add a member by email (owner or admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member]
+              properties:
+                member:
+                  type: object
+                  properties:
+                    email: { type: string, format: email }
+                    role: { type: string, enum: [viewer, editor, owner] }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /website/sites/{site_id}/members/{user_id}:
+    parameters:
+      - $ref: "#/components/parameters/SiteId"
+      - $ref: "#/components/parameters/UserId"
+    patch:
+      tags: [Website]
+      summary: Change a member's role (owner or admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [member]
+              properties:
+                member:
+                  type: object
+                  properties:
+                    role: { type: string, enum: [viewer, editor, owner] }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Member" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      tags: [Website]
+      summary: Remove a member (owner or admin; the last owner cannot be removed)
+      responses:
+        "204": { description: Removed }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  # ---------------- Report ----------------
+  /report/details:
+    get:
+      tags: [Report]
+      summary: My raw statistics rows
+      parameters:
+        - $ref: "#/components/parameters/DetailSiteId"
+        - $ref: "#/components/parameters/DetailPeriod"
+        - $ref: "#/components/parameters/DetailSort"
+        - $ref: "#/components/parameters/Direction"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Detail" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Report]
+      summary: Add a statistics row (owner/editor of the site, or admin)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DetailInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Detail" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+  /report/reports/via_join:
+    get:
+      tags: [Report]
+      summary: Final report, website data merged by one cross-database SQL JOIN
+      parameters:
+        - $ref: "#/components/parameters/Domain"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+  /report/reports/via_service:
+    get:
+      tags: [Report]
+      summary: Final report, website data merged in Ruby via Website::SiteService
+      parameters:
+        - $ref: "#/components/parameters/Domain"
+        - $ref: "#/components/parameters/Sort"
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Report" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
